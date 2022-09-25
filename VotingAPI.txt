@@ -1,0 +1,201 @@
+// WEB3 Imports
+import Web3 from 'web3';
+import { AbiItem } from 'web3-utils';
+import * as IPFS from 'ipfs-http-client'
+
+import { IMajorityVoting, AspisConfiguration, DAO } from '../abi';
+import { timeToDays } from '../helpers/formatDate'
+
+const web3 = new Web3(Web3.givenProvider)
+
+export enum VoterState {
+    None,
+    Abstain,
+    Yea,
+    Nay
+}
+
+export class VotingAPI {
+
+    static async changeEarlyExitFee({ address, rageFine }) {
+        try {
+            const AspisConfigurationInstance = new web3.eth.Contract(
+                AspisConfiguration as AbiItem[],
+                address
+            )
+            const action = {
+                to: address,
+                value: 0,
+                data: AspisConfigurationInstance.methods.setEarlyExitFee(rageFine).encodeABI(),
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async changeDepositLimits({ address, minimumDeposit, maximumDeposit }) {
+        try {
+            const AspisConfigurationInstance = new web3.eth.Contract(
+                AspisConfiguration as AbiItem[],
+                address
+            )
+            const action = {
+                // needed smartcontract to change to one function instead of two
+                to: address, data: AspisConfigurationInstance.methods.setMinInvestment(minimumDeposit).encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async changeSpendingLimits({ address, monthlyAssetsPct }) {
+        try {
+            const AspisConfigurationInstance = new web3.eth.Contract(
+                AspisConfiguration as AbiItem[],
+                address
+            )
+            const action = {
+                to: address, data: AspisConfigurationInstance.methods.setSpendingLimit(monthlyAssetsPct).encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async changeLockupPeriod({ address, months, days, hours, minutes }) {
+        try {
+            const lockLimit = timeToDays(months, days, hours, minutes)
+            const AspisConfigurationInstance = new web3.eth.Contract(
+                AspisConfiguration as AbiItem[],
+                address
+            )
+            const action = {
+                to: address, data: AspisConfigurationInstance.methods.setLockLimit(lockLimit).encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async changeEntranceFee({ address, fee }) {
+        try {
+            const AspisConfigurationInstance = new web3.eth.Contract(
+                AspisConfiguration as AbiItem[],
+                address
+            )
+            const action = {
+                to: address, data: AspisConfigurationInstance.methods.setEntranceFee(fee).encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async changePerformanceFee({ address, performanceFee }) {
+        try {
+            const AspisConfigurationInstance = new web3.eth.Contract(
+                AspisConfiguration as AbiItem[],
+                address
+            )
+            const action = {
+                to: address, data: AspisConfigurationInstance.methods.setTxFee(performanceFee).encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async changeVotingConfig({ address, minDuration, participationRequiredPct, supportRequiredPct }) {
+        try {
+            const VotingInstance = new web3.eth.Contract(
+                IMajorityVoting as AbiItem[],
+                address
+            )
+            const action = {
+                to: address, data: VotingInstance.methods.changeVoteConfig(participationRequiredPct, supportRequiredPct, minDuration).encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async createAdHocTransaction({ address, tokenAddress, to, amount }) {
+        try {
+            const DaoConfigurationInstance = new web3.eth.Contract(
+                DAO as AbiItem[],
+                address
+            )
+            const action = {
+                to: address, data: DaoConfigurationInstance.methods.transferTo(tokenAddress, to, amount, '').encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async addNewAllowlistedAddress({ address, allowlistedAddress }) {
+        try {
+            const DaoConfigurationInstance = new web3.eth.Contract(
+                DAO as AbiItem[],
+                address
+            )
+            const action = {
+                to: address, data: DaoConfigurationInstance.methods.addTrustedTransferAddresses(allowlistedAddress).encodeABI()
+            }
+            return action
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async newVote({ address, value, configAddress, script, duration, metadata, account }) {
+        try {
+            const projectId = "2DqVULipa0zGAMtjfx1FLOjFBcr"
+            const projectSecret = "dd4ad21913bddaf28286f60999b8127e"
+            const authorization = "Basic " + Buffer.from(projectId + ":" + projectSecret).toString('base64')
+
+            const ipfs = IPFS({
+                url: "https://ipfs.infura.io:5001/api/v0",
+                headers: {
+                    authorization
+                }
+            })
+
+            var blob = new Blob([decodeURIComponent(encodeURI(JSON.stringify({
+                text: metadata.proposalTitle,
+                description: metadata.proposalDescription
+            })))], { type: "application/json;charset=utf-8;" });
+
+            const { path } = await ipfs.add(blob);
+
+            const voting = new web3.eth.Contract(
+                IMajorityVoting as AbiItem[],
+                address
+            )
+            const tx = await voting.methods.newVote(web3.utils.asciiToHex(path), [[script.to, 0, script.data]], 0, duration, true, VoterState.None)
+            // const gas = await tx.estimateGas()
+            await tx.send({ from: account })
+        } catch (err) {
+            return Promise.reject(err)
+        }
+    }
+
+    static async vote({ address, votingId, decision, account }) {
+            const voting = new web3.eth.Contract(
+                IMajorityVoting as AbiItem[],
+                address
+            )
+            const tx = await voting.methods.vote(votingId, decision, true)
+            // const gas = await tx.estimateGas()
+            await tx.send({ from: account })
+    }
+
+}
